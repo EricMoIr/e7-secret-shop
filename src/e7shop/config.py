@@ -157,5 +157,15 @@ class Config(_Model):
 
 
 def load_config(path: str | Path) -> Config:
+    """Load and validate a config. Relative output folders are resolved against the config's folder."""
+    path = Path(path)
     with open(path, encoding="utf-8") as f:
-        return Config.model_validate(json.load(f))
+        config = Config.model_validate(json.load(f))
+    base = path.resolve().parent
+    return config.model_copy(
+        update={
+            name: str(base / getattr(config, name))
+            for name in ("runs_dir", "logs_dir", "debug_dir")
+            if not Path(getattr(config, name)).is_absolute()
+        }
+    )

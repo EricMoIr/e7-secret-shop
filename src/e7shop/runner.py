@@ -23,6 +23,12 @@ class Balances:
 
 def preflight(game: Game, config: Config, *, sleep: Callable[[float], None] = time.sleep) -> Balances:
     """Focus the game, check the window size and the Secret Shop screen, and read starting balances."""
+    check_screen(game, config, sleep=sleep)
+    return read_balances(game, config, sleep=sleep)
+
+
+def check_screen(game: Game, config: Config, *, sleep: Callable[[float], None] = time.sleep) -> None:
+    """Focus the game and check the window size and that the Secret Shop is open."""
     game.focus()
     sleep(config.timings.after_focus_ms / 1000)
 
@@ -45,6 +51,8 @@ def preflight(game: Game, config: Config, *, sleep: Callable[[float], None] = ti
     ):
         raise StopRun(StopKind.ERROR, "The Secret Shop isn't open. Go to the Secret Shop in Epic Seven and try again.")
 
+
+def read_balances(game: Game, config: Config, *, sleep: Callable[[float], None] = time.sleep) -> Balances:
     gold = read_number_consensus(game, config, config.currency.gold_region, "gold", sleep=sleep)
     skystones = read_number_consensus(game, config, config.currency.skystones_region, "skystones", sleep=sleep)
     log.info("Read starting balances: %s gold, %s skystones", f"{gold:,}", f"{skystones:,}")

@@ -313,7 +313,7 @@ e7-secret-shop/
    - live counters from the ledger (refreshes, bookmarks, medals, gold and skystones remaining) and a log view
    - message boxes for "game not running", "go to Secret Shop", "not enough gold", and the stop reason
 
-   The runner runs on a `QThread`.
+   The runner runs on a `QThread`. **Done.**
 
 **Phase 3: configuration screen (to be defined)**
 10. Possible approach: capture a screenshot of the game, show it in the editor, and let the user drag rectangles for slots (per page), dialogs, currency regions, and the scroll area. Details to be decided later.

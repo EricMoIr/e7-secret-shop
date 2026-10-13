@@ -48,6 +48,7 @@ class Ledger:
         path: Path | None = None,
         dry_run: bool = False,
         clock: Callable[[], datetime] = datetime.now,
+        on_entry: Callable[["Ledger", LedgerEntry], None] | None = None,
     ):
         self.initial_gold = initial_gold
         self.initial_skystones = initial_skystones
@@ -55,6 +56,7 @@ class Ledger:
         self.entries: list[LedgerEntry] = []
         self.path = path
         self._clock = clock
+        self._on_entry = on_entry
         self._file: TextIO | None = None
         if path:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,6 +136,8 @@ class Ledger:
         self.entries.append(entry)
         if self._file:
             self._write(entry.to_json())
+        if self._on_entry:
+            self._on_entry(self, entry)
         return entry
 
     def _write(self, record: dict) -> None:

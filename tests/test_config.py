@@ -66,3 +66,14 @@ def test_rejects_duplicate_keywords():
     data["wanted_items"][1]["keyword"] = "COVENANT"
     with pytest.raises(ValidationError, match="unique"):
         Config.model_validate(data)
+
+
+def test_output_dirs_resolve_against_config_folder(tmp_path):
+    data = _data()
+    data["logs_dir"] = str(tmp_path / "elsewhere")
+    path = tmp_path / "cfg" / "config.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps(data), encoding="utf-8")
+    config = load_config(path)
+    assert config.runs_dir == str(tmp_path / "cfg" / "runs")
+    assert config.logs_dir == str(tmp_path / "elsewhere")

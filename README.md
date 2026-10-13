@@ -2,7 +2,7 @@
 
 Epic Seven Secret Shop helper. It buys every Covenant Bookmark and Mystic Medal in the shop, refreshes, and repeats, until it has done the number of refreshes you asked for or runs out of skystones or gold. See [PLAN.md](PLAN.md) for the full design.
 
-Phase 1 is a command-line tool. The GUI comes in phase 2.
+Run it without a command to open the GUI; `run` and `inspect` are also available from the command line.
 
 ## Setup (Windows)
 
@@ -19,9 +19,25 @@ It must run with Windows Python, not inside WSL.
 
 3. Edit `config.json` with your coordinates (see below).
 
-The app always runs as administrator. When it isn't elevated, it relaunches itself through the UAC prompt in a new console window.
+The app always runs as administrator. When it isn't elevated, it relaunches itself through the UAC prompt: the GUI without a console window, and the command line in a new console that waits for Enter before closing.
 
 ## Usage
+
+### GUI
+
+```powershell
+.venv\Scripts\python -m e7shop
+```
+
+1. Pick your config file. The app remembers it next time.
+2. Open the Secret Shop in Epic Seven and click **Read from game**. The gold and skystones it read appear in the boxes.
+3. Check the values, correct them if needed, and tick **These values are correct**. Changing a value unticks it.
+4. Choose **Refresh N times** or **Until out of skystones or gold**, then click **Start**, or **Dry run** to try it without clicking.
+5. Watch the progress panel and log. **Stop** or **F12** ends the run.
+
+After a run, the gold and skystones left are carried over into the boxes for the next run. They still need confirming.
+
+### Command line
 
 Open the Secret Shop in Epic Seven, then:
 
@@ -34,7 +50,7 @@ Open the Secret Shop in Epic Seven, then:
 
 Before starting, `run` shows the gold and skystones it read and asks you to confirm or correct them. Press **F12** (`abort_hotkey`) at any time to stop.
 
-Output:
+Output (relative folders are next to the config file):
 - `runs/<timestamp>.jsonl`: every purchase and refresh, plus start and stop records
 - `logs/<timestamp>.log`: detailed log, including every OCR read
 - `debug/`: screenshots saved when an OCR check fails, and `inspect` output

@@ -114,6 +114,9 @@ class FakeGame:
     def save_debug(self, region: Rect, label: str, note: str) -> None:
         self.debug_saves.append(label)
 
+    def close(self) -> None:
+        self.closed = True
+
 
 class DryRunFakeGame(FakeGame):
     """Clicks move the mouse but never press, as in WindowsGame's dry run."""

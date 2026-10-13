@@ -1,0 +1,56 @@
+{
+  "tesseract_path": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+  "process_name": "EpicSeven.exe",
+  "window_size": { "width": 1920, "height": 1080 },
+  "abort_hotkey": "f12",
+  "secret_shop_region": null,
+
+  "ocr": {
+    "secret_shop_text": "secret shop",
+    "buy_text": "buy",
+    "confirm_text": "confirm",
+    "retries": 3,
+    "retry_delay_ms": 300,
+    "number_consensus_reads": 3
+  },
+
+  "currency": {
+    "skystones_region": [1400, 20, 1550, 60],
+    "gold_region": [1600, 20, 1800, 60],
+    "refresh_cost": 3
+  },
+
+  "wanted_items": [
+    { "name": "Covenant Bookmarks", "keyword": "covenant", "price_gold": 184000 },
+    { "name": "Mystic Medals",      "keyword": "mystic",   "price_gold": 280000 }
+  ],
+
+  "pages": [
+    {
+      "slots": [
+        { "target": [1100, 200, 1700, 290] },
+        { "target": [1100, 310, 1700, 400] },
+        { "target": [1100, 420, 1700, 510] },
+        { "target": [1100, 530, 1700, 620] }
+      ]
+    },
+    {
+      "slots": [
+        { "target": [1100, 480, 1700, 570] },
+        { "target": [1100, 590, 1700, 680] }
+      ]
+    }
+  ],
+
+  "scroll": { "area": [1100, 300, 1700, 600], "notches": -5, "notch_delay_ms": [30, 80] },
+
+  "buy_dialog":     { "ocr_region": [600, 300, 1300, 750], "button": [900, 650, 1100, 710] },
+  "refresh_button": [100, 950, 350, 1010],
+  "refresh_dialog": { "ocr_region": [600, 300, 1300, 750], "button": [900, 650, 1100, 710] },
+
+  "timings": { "after_focus_ms": 500, "after_scroll_ms": 600, "after_refresh_ms": 1500 },
+
+  "runs_dir": "runs",
+  "logs_dir": "logs",
+  "debug_dir": "debug"
+}

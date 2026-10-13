@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+
+# runtime output
+runs/
+logs/
+debug/
+
+# local configs (keep config.example.json tracked)
+config.json

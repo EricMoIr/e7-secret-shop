@@ -122,7 +122,8 @@ To check a config: run `inspect` and look at each region's crop and OCR text in 
 
 **Recovering instead of stopping:**
 - **An item name doesn't read:** if the buy or refresh dialog is still open (its confirm click didn't land), the app confirms it to finish that step, then reads the name again. Otherwise it waits for the list to stop moving and reads again. If it still can't, it skips the item, with a warning, a debug capture and a "Skipped items" line in the summary.
-- **The buy or refresh dialog isn't recognised after a click:** if the button looks the same as before the click, the click didn't register, so it's clicked again (up to 3 clicks, then the run stops). If the button looks covered, the dialog must be open (its text just didn't read), so its confirm button is clicked.
+- **A wanted item is already bought:** its buy button is greyed out ("0/1 Buy"), which happens when a refresh didn't go through and the shop is the one just bought from. The app skips it without clicking, with a warning and an "Already bought" line in the summary.
+- **The buy or refresh dialog isn't recognised after a click:** if the button got clearly darker than before the click, the dialog must be open (an open dialog dims the shop; its text just didn't read), so its confirm button is clicked. Otherwise the click didn't register, so it's clicked again (up to 3 clicks, then the run stops). The "before" look waits for the screen to settle, so a dialog still fading out can't fool it.
 
 Configs from older versions (slots with `target` or `price_region`) don't load: run setup to replace them. Setup keeps your wanted items, and gives items without a keyword the first word of their name.
 

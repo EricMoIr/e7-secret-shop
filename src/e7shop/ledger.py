@@ -19,8 +19,9 @@ from .errors import StopRun
 class LedgerEntry:
     timestamp: datetime
     round: int
-    # "skip": a slot whose item name couldn't be read, so it was passed over. Spends nothing.
-    kind: Literal["purchase", "refresh", "skip"]
+    # "skip": a slot whose item name couldn't be read, so it was passed over. "sold_out": a wanted
+    # item whose buy button showed it was already bought. Neither spends anything.
+    kind: Literal["purchase", "refresh", "skip", "sold_out"]
     item: str | None
     page: int | None
     slot: int | None
@@ -81,6 +82,9 @@ class Ledger:
     def record_skip(self, round_: int, page: int, slot: int) -> LedgerEntry:
         return self._add(LedgerEntry(self._clock(), round_, "skip", None, page, slot, 0, 0))
 
+    def record_sold_out(self, round_: int, item: str, page: int, slot: int) -> LedgerEntry:
+        return self._add(LedgerEntry(self._clock(), round_, "sold_out", item, page, slot, 0, 0))
+
     @property
     def gold_spent(self) -> int:
         return sum(e.gold for e in self.entries)
@@ -105,6 +109,10 @@ class Ledger:
     def skipped(self) -> int:
         return sum(1 for e in self.entries if e.kind == "skip")
 
+    @property
+    def sold_out(self) -> int:
+        return sum(1 for e in self.entries if e.kind == "sold_out")
+
     def purchases_by_item(self) -> Counter[str]:
         return Counter(e.item for e in self.entries if e.kind == "purchase")
 
@@ -122,6 +130,8 @@ class Ledger:
         ]
         if self.skipped:
             lines.append(f"Skipped items:      {self.skipped} (name couldn't be read; see the log)")
+        if self.sold_out:
+            lines.append(f"Already bought:     {self.sold_out} (a refresh probably didn't go through; see the log)")
         return lines
 
     def close(self, stop: StopRun | None = None) -> None:
@@ -136,6 +146,7 @@ class Ledger:
                 "refreshes": self.refreshes,
                 "purchases": dict(self.purchases_by_item()),
                 "skipped": self.skipped,
+                "sold_out": self.sold_out,
                 "gold_spent": self.gold_spent,
                 "skystones_spent": self.skystones_spent,
             }

@@ -29,6 +29,10 @@ class FakeGame:
     - `drop_clicks[kind]`: the next N clicks of that kind ("buy", "buy_confirm", "refresh",
       "refresh_confirm") don't register in the game.
     - `blank_name_reads`: the next N item-name reads come back empty.
+    - `failed_refreshes`: the next N refresh confirmations close the dialog but don't refresh (a
+      network hiccup): the round and the scroll position stay as they were.
+    - A bought item keeps its name, and its buy button turns grey (`sold`).
+    - `fade_after_buy`: after a purchase, the next N looks are still dimmed (the dialog fading out).
     - While a dialog is open, it dims the shop (grabs look different) and covers the item names.
     """
 
@@ -54,6 +58,12 @@ class FakeGame:
         self.broken_refresh_dialog = broken_refresh_dialog
         self.drop_clicks: dict[str, int] = {}
         self.blank_name_reads = 0
+        self.failed_refreshes = 0
+        # After a purchase, the next `fade_after_buy` looks at the screen are still dimmed by the
+        # buy dialog fading out.
+        self.fade_after_buy = 0
+        self.fading_frames = 0
+        self.sold: set[tuple[int, int, int]] = set()  # (round, page, slot)
 
         self.round = 0
         self.page = 0
@@ -129,38 +139,52 @@ class FakeGame:
         if self.dialog == "buy" and target == c.buy_dialog.button:
             r, p, s = self.round, *self.selected
             self.bought.append((r, p, s, self.rounds[r][p][s].lower()))
-            self.rounds[r][p][s] = "sold out"
+            self.sold.add((r, p, s))
             self.dialog = None
+            self.fading_frames = self.fade_after_buy
         elif self.dialog == "refresh" and target == c.refresh_dialog.button:
-            self.round += 1
-            self.page = 0
             self.dialog = None
+            if self.failed_refreshes:
+                self.failed_refreshes -= 1
+            else:
+                self.round += 1
+                self.page = 0
         elif self.dialog is None and target == c.refresh_button:
             self.dialog = "refresh"
         elif self.dialog is None:
             for s, slot in enumerate(c.pages[self.page].slots):
-                if target == slot.buy_button:
+                if target == slot.buy_button and (self.round, self.page, s) not in self.sold:
                     self.dialog = "buy"
                     self.selected = (self.page, s)
 
     def scroll(self, area: Rect, notches: int, notch_delay_ms: tuple[int, int]) -> None:
         self.scrolls += 1
-        self.page += 1
+        self.page = min(self.page + 1, len(self.config.pages) - 1)  # already at the bottom: no change
         self.moving_frames = self.frames_moving_after_scroll
 
     def grab(self, region: Rect):
         """A flat image per (round, page); right after a scroll, `frames_moving_after_scroll` looks
-        differ from each other, as if the list were still moving."""
+        differ from each other, as if the list were still moving. A buy button is green, or grey once
+        bought."""
         from PIL import Image
 
         self.grabs += 1
-        shade = (40 * self.round + 90 * self.page) % 200
-        if self.dialog:
-            shade = (shade + 120) % 256  # an open dialog dims everything behind it
+        if self.fading_frames:
+            self.fading_frames -= 1
+        size = (max(region.width, 1), max(region.height, 1))
+        for s, slot in enumerate(self.config.pages[self.page].slots):
+            if region == slot.buy_button:
+                if (self.round, self.page, s) in self.sold:
+                    return Image.new("RGB", size, (60, 62, 60))
+                dim = 0.5 if self.dialog or self.fading_frames else 1.0
+                return Image.new("RGB", size, (int(40 * dim), int(150 * dim), int(50 * dim)))
+        shade = 100 + (40 * self.round + 90 * self.page) % 100
+        if self.dialog or self.fading_frames:
+            shade //= 3  # an open (or still fading) dialog dims everything behind it
         if self.moving_frames:
             self.moving_frames -= 1
             shade = (shade + 25 * (self.moving_frames + 1)) % 256
-        return Image.new("L", (max(region.width, 1), max(region.height, 1)), shade)
+        return Image.new("RGB", size, (shade, shade, shade))
 
     def save_debug(self, region: Rect, label: str, note: str) -> None:
         self.debug_saves.append(label)

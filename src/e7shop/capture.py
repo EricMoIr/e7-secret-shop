@@ -9,6 +9,17 @@ from .geometry import Rect
 STILL_MAX_DIFF = 1.0
 
 
+def brightness(image: Image.Image) -> float:
+    """Mean grayscale value, 0-255."""
+    return float(np.asarray(image.convert("L"), dtype=np.float32).mean())
+
+
+def green_dominance(image: Image.Image) -> float:
+    """How much greener than red and blue the image is on average: G - (R + B) / 2, about -255 to 255."""
+    a = np.asarray(image.convert("RGB"), dtype=np.float32)
+    return float((a[..., 1] - (a[..., 0] + a[..., 2]) / 2).mean())
+
+
 def mean_difference(a: Image.Image, b: Image.Image) -> float:
     """Mean absolute grayscale difference between two same-sized images, 0-255. Different sizes count as 255."""
     if a.size != b.size:

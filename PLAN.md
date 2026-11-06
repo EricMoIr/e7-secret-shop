@@ -138,7 +138,8 @@ The run stops at whichever comes first:
 Every stop shows its reason in the GUI next to the run summary, and records it in the run file.
 
 **Recovering instead of stopping** (added after the first live runs):
-- **Dialog not recognised after clicking a buy or refresh button.** The button is grabbed before the click and compared after (mean grayscale difference < 12 = unchanged). Unchanged: the click didn't register, so click again, up to 3 clicks in total. Changed: something covers the button, and that can only be the dialog (an open dialog dims the whole shop), so click its confirm button. Risk: if the game ever shows a hover effect on the button, "unchanged" could read as "covered"; the confirm click would then land on the shop list. A dry run with a wanted item on screen shows which branch was taken.
+- **Dialog not recognised after clicking a buy or refresh button.** The button's brightness is measured before the click and after. **At least 15 darker** (mean grayscale): the dialog covers it (open dialogs took buy buttons from ~54 to 2–25 and Refresh from 62 to 9), so click its confirm button. Anything else: the click didn't register, so click again, up to 3 clicks in total. The "before" look first waits for the button to stop changing. The first version only asked whether the button looked *different*: in the first long run, the "before" look of Refresh was taken while the buy dialog was still fading out, the click didn't register, the brighter "after" look counted as covered, and a refresh that never happened was confirmed and recorded. The next round then found the item it had just bought (see the next point).
+- **Wanted item already bought.** Before clicking a wanted item's buy button (and before the gold check), measure how green the button is: G − (R+B)/2 over the button. Available "1/1 Buy" buttons measured 25.1–26.7 at every window size tested; a bought "0/1 Buy" one measured 8.8. Below 17, the item is skipped with a warning and a `sold_out` ledger entry, without clicking. Found in the first long run (round 163 of a 10:32 session): a refresh didn't go through, the next round found the Covenant Bookmarks it had just bought, clicked its greyed-out button 3 times and stopped. Reading the "0/1" text was tried too, but the setup box cut off the counter's first digit.
 - **Item name not read.** Check the buy dialog region for "buy", then the refresh dialog region for "confirm". If one is open, its confirm click from the previous step didn't land: click it again to finish that step (it's already in the ledger, so nothing is recorded twice), then read the name again. If neither is open, wait for the list to stop moving and read again. If it still doesn't read, skip the slot with a `skip` ledger entry; the summary counts them.
 
 ### 3.7 Administrator rights
@@ -255,8 +256,8 @@ click_through_dialog(button, dialog):
    up to 3 times:
       click_target(button)
       OCR dialog for its keyword, retried ── found → click_target(dialog.button), done
-      button looks like `before` (mean diff < 12)? the click didn't register → next try
-      otherwise the dialog covers it (unread) → click_target(dialog.button), done
+      button ≥ 15 darker than `before` (taken once the screen is still)? the dialog covers it (unread) → click_target(dialog.button), done
+      otherwise the click didn't register → next try
    ── 3 clicks without a dialog → error stop
 
 click_target(rect):

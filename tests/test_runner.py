@@ -281,12 +281,12 @@ def test_run_closes_the_ledger_file(tmp_path):
 
 
 def test_page_two_is_read_as_soon_as_the_list_stops_moving():
-    game = FakeGame(CONFIG, [shop([], ["Mystic"])])
+    game = FakeGame(CONFIG, [NOTHING])
     game.frames_moving_after_scroll = 3
     sleeps = []
     ledger = Ledger(2_000_000, 30)
     stop = run(game, CONFIG, ledger, 0, sleep=sleeps.append)
-    assert stop.kind is StopKind.COMPLETED and [b[3] for b in game.bought] == ["mystic"]
+    assert stop.kind is StopKind.COMPLETED and game.scrolls == 1
     check = CONFIG.timings.settle_check_ms / 1000
     # Three looks still moving, then two that match: 4 short waits instead of a fixed one.
     assert sleeps.count(check) == 4
@@ -307,3 +307,64 @@ def test_wait_until_still_with_no_timeout_doesnt_look():
     game = FakeGame(CONFIG, [NOTHING])
     assert wait_until_still(game, Rect(0, 0, 10, 10), interval_s=0.08, timeout_s=0, sleep=no_sleep)
     assert game.grabs == 0
+
+
+# Items already bought (a refresh that didn't go through)
+
+
+def test_failed_refresh_leaves_bought_items_greyed_out_and_they_are_skipped():
+    """The incident from the first long run: a refresh didn't go through, so the next round saw the
+    Covenant Bookmarks it had just bought. It used to click it 3 times and stop with an error."""
+    game = FakeGame(CONFIG, [shop([], ["Covenant"]), NOTHING])
+    game.failed_refreshes = 1
+    stop, ledger = run_game(game, refreshes=2)
+    assert stop.kind is StopKind.COMPLETED
+    assert [b[3] for b in game.bought] == ["covenant"]
+    assert ledger.sold_out == 1 and ledger.purchases_by_item() == {"Covenant Bookmarks": 1}
+    # The greyed-out button was never clicked again.
+    assert game.clicks.count(CONFIG.pages[1].slots[0].buy_button) == 1
+    assert any("Already bought:     1" in line for line in ledger.summary_lines())
+
+
+def test_sold_out_check_comes_before_the_gold_check():
+    """A greyed-out wanted item with too little gold left must not end the run as out of gold."""
+    game = FakeGame(CONFIG, [shop(["Mystic"], [])])
+    game.sold.add((0, 0, 0))
+    stop, ledger = run_game(game, gold=300_000, refreshes=0)
+    assert stop.kind is StopKind.COMPLETED and ledger.sold_out == 1 and game.clicks == []
+
+
+def test_green_dominance_separates_available_from_bought_buttons():
+    from PIL import Image
+
+    from e7shop.capture import green_dominance
+    from e7shop.shop import SOLD_OUT_MAX_GREEN
+
+    # Mean colours measured on the real shop's "1/1 Buy" and "0/1 Buy" buttons.
+    available = Image.new("RGB", (40, 20), (31, 64, 36))
+    bought = Image.new("RGB", (40, 20), (21, 32, 23))
+    assert green_dominance(available) > SOLD_OUT_MAX_GREEN > green_dominance(bought)
+
+
+def test_dialog_fading_out_before_a_refresh_isnt_mistaken_for_an_open_dialog():
+    """The false refresh from the first long run: the Refresh button's "before" look was taken while
+    the buy dialog was still fading out. The refresh click didn't register, the next look was
+    brighter, and "different" was taken as "covered", so a refresh that never happened was confirmed."""
+    # As in the incident, the item is the last one on page 2, so the refresh follows the purchase.
+    game = FakeGame(CONFIG, [shop([], ["-", "Covenant"]), NOTHING])
+    game.fade_after_buy = 2
+    game.drop_clicks["refresh"] = 1
+    stop, ledger = run_game(game, refreshes=1)
+    assert stop.kind is StopKind.COMPLETED
+    # The missed click was retried, and the refresh really happened.
+    assert game.clicks.count(CONFIG.refresh_button) == 2
+    assert ledger.refreshes == 1 and game.round == 1
+
+
+def test_sold_out_check_waits_for_a_fading_dialog():
+    """Right after a purchase the shop is dimmed for a moment: a green button must not look sold out."""
+    game = FakeGame(CONFIG, [shop(["Covenant", "Mystic"], [])])
+    game.fade_after_buy = 2
+    stop, ledger = run_game(game, refreshes=0)
+    assert stop.kind is StopKind.COMPLETED
+    assert [b[3] for b in game.bought] == ["covenant", "mystic"] and ledger.sold_out == 0

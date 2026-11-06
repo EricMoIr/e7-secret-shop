@@ -4,7 +4,7 @@ import logging
 import time
 from collections.abc import Callable
 
-from .capture import STILL_MAX_DIFF, mean_difference
+from .capture import STILL_MAX_DIFF, brightness, green_dominance, mean_difference
 from .config import Config, DialogConfig, Page, Slot, WantedItem
 from .errors import StopKind, StopRun
 from .game import Game
@@ -13,9 +13,13 @@ from .ledger import Ledger
 
 log = logging.getLogger(__name__)
 
-# Mean grayscale difference (0-255) below which a buy or refresh button looks the same as before it
-# was clicked: still on show, with no dialog over it. An open dialog dims the whole shop behind it.
-BUTTON_SAME_MAX_DIFF = 12.0
+# How much darker (mean grayscale, 0-255) a buy or refresh button must get after a click to count as
+# covered by its dialog. Open dialogs dim the whole shop: on the real shop, buy buttons went from ~54
+# to 2-25 and the Refresh button from 62 to 9, so a drop of 15 is well inside every case.
+DIALOG_DIM_MIN_DROP = 15.0
+# A buy button that can still be bought ("1/1 Buy") is bright green; once bought ("0/1 Buy") it's
+# greyed out. Measured on the real shop at every window size tested: 25.1-26.7 available, 8.8 bought.
+SOLD_OUT_MAX_GREEN = 17.0
 # Clicks on a buy or refresh button before giving up when its dialog can't be found.
 DIALOG_CLICK_ATTEMPTS = 3
 
@@ -98,6 +102,15 @@ class Shop:
             if item is None:
                 continue
             log.info("Round %d, %s: found %s", round_, where, item.name)
+            if self._is_sold_out(slot.buy_button):
+                # Usually a refresh that didn't go through: the shop is the one already bought from.
+                log.warning(
+                    "Round %d, %s: %s is already bought (its buy button is greyed out); skipping it. "
+                    "If it was bought last round, the last refresh didn't go through.",
+                    round_, where, item.name,
+                )
+                self._ledger.record_sold_out(round_, item.name, page_index + 1, slot_index + 1)
+                continue
             if self._ledger.gold_remaining < item.price_gold:
                 raise StopRun(
                     StopKind.OUT_OF_GOLD,
@@ -126,6 +139,13 @@ class Shop:
             f"{item.price_gold:,}",
             f"{self._ledger.gold_remaining:,}",
         )
+
+    def _is_sold_out(self, button: Rect) -> bool:
+        # A dialog still fading out (after the previous purchase) would make the button look grey.
+        self._wait_until_still(button)
+        green = green_dominance(self._game.grab(button))
+        log.debug("Buy button green dominance: %.1f", green)
+        return green < SOLD_OUT_MAX_GREEN
 
     def _read_name(self, region: Rect, where: str, label: str) -> str | None:
         """Read a slot's item name. None when it can't be read even after recovering: the slot is skipped.
@@ -179,31 +199,42 @@ class Shop:
         """Click `button`, wait for its dialog, and click the dialog's confirm button.
 
         When the dialog's text isn't found, the button is compared with how it looked before the click.
-        Unchanged means the click didn't open anything, so the button is clicked again. Changed means
-        something covers it, and that can only be the dialog (its text just wasn't read), so it's confirmed.
+        Clearly darker means the dialog covers it (an open dialog dims the shop; its text just wasn't
+        read), so it's confirmed. Anything else means the click didn't open it, so it's clicked again.
+
+        The "before" look waits for the button to stop changing first: right after a purchase the buy
+        dialog is still fading out, and a dim "before" made a later, brighter look seem covered. That
+        once confirmed a refresh that never happened.
         """
-        before = self._game.grab(button)
+        self._wait_until_still(button)
+        before = brightness(self._game.grab(button))
         for attempt in range(1, DIALOG_CLICK_ATTEMPTS + 1):
             self._game.click(button)
             if self._wait_for(dialog.ocr_region, keyword, label):
                 self._game.click(dialog.button)
                 return
-            if mean_difference(before, self._game.grab(button)) < BUTTON_SAME_MAX_DIFF:
+            after = brightness(self._game.grab(button))
+            if before - after >= DIALOG_DIM_MIN_DROP:
                 log.warning(
-                    "The %s didn't appear for %s and its button is still showing; clicking it again (%d of %d)",
-                    name, what, attempt, DIALOG_CLICK_ATTEMPTS,
+                    "The %s wasn't recognised for %s, but its button got darker (%.0f → %.0f), so it's open; confirming",
+                    name, what, before, after,
                 )
-                continue
-            log.warning("The %s wasn't recognised for %s, but its button is covered, so it's open; confirming", name, what)
-            self._game.click(dialog.button)
-            return
+                self._game.click(dialog.button)
+                return
+            log.warning(
+                "The %s didn't appear for %s and its button isn't covered (%.0f → %.0f); clicking it again (%d of %d)",
+                name, what, before, after, attempt, DIALOG_CLICK_ATTEMPTS,
+            )
         raise StopRun(StopKind.ERROR, f"The {name} didn't appear for {what} after {DIALOG_CLICK_ATTEMPTS} clicks")
 
     def _wait_until_list_still(self) -> None:
+        self._wait_until_still(self._config.scroll.area)
+
+    def _wait_until_still(self, region: Rect) -> None:
         timings = self._config.timings
         wait_until_still(
             self._game,
-            self._config.scroll.area,
+            region,
             interval_s=timings.settle_check_ms / 1000,
             timeout_s=timings.after_scroll_ms / 1000,
             sleep=self._sleep,

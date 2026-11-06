@@ -27,6 +27,14 @@ From WSL, which copies the working tree to `%USERPROFILE%\e7shop-build` and buil
 scripts/build-from-wsl.sh
 ```
 
+For a release, add `-Release` (Windows) or `--release` (WSL):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Release
+```
+
+A release build doesn't write the `debug` folder (screenshots of failed reads and of setup). Logs and run records are still written. Set `"save_debug": true` in the config to turn debug screenshots back on in a release build, or `false` to turn them off elsewhere.
+
 Either way, the script:
 
 1. creates `.venv-build` with PyInstaller;
@@ -100,7 +108,7 @@ Before starting, `run` shows the gold and skystones it read and asks you to conf
 Output (relative folders are next to the config file):
 - `runs/<timestamp>.jsonl`: every purchase and refresh, plus start and stop records
 - `logs/<timestamp>.log`: detailed log, including every OCR read
-- `debug/`: screenshots saved when an OCR check fails, and `inspect` output
+- `debug/`: screenshots saved when an OCR check fails or during setup, and `inspect` output. Not written by release builds unless `save_debug` is `true`.
 
 ## Config
 
@@ -116,6 +124,7 @@ Setup writes the config; editing it by hand is optional. All rectangles are `[x0
 | `buy_dialog`, `refresh_dialog` | text region checked for "buy" / "confirm", and the button to click |
 | `refresh_button` | the shop's Refresh button |
 | `wanted_items` | display name, `keyword` (matched case-insensitively in each slot's name text; must be unique) and gold price (for the ledger and the gold checks; it isn't read from the shop) |
+| `save_debug` | optional: write debug screenshots to `debug_dir` (`true`/`false`). Default: on, except in release builds |
 | `timings` | wait after focusing and after refreshing; after scrolling, the list is checked every `settle_check_ms` and read as soon as it stops moving, for at most `after_scroll_ms` |
 
 To check a config: run `inspect` and look at each region's crop and OCR text in `debug/inspect-*/`.

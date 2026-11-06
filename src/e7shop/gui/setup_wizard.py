@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWizardPage,
 )
 
+from ..build_flags import RELEASE
 from ..calibrate import (
     MATCH_THRESHOLD,
     MAX_SCROLL_NOTCHES,
@@ -136,6 +137,8 @@ class SetupWizard(QWizard):
         if not debug_dir.is_absolute():
             debug_dir = self.config_path.parent / debug_dir
         self._debug_dir = debug_dir / f"setup-{datetime.now():%Y%m%d-%H%M%S}"
+        save_debug = self.base.get("save_debug")
+        self._save_screenshots = save_debug if isinstance(save_debug, bool) else not RELEASE
         # Replaceable in tests: no modal boxes, no waiting, no Win32 focus calls.
         self.show_message: MessageFn = self._show_message_box
         self.hide_delay_s = 0.15
@@ -277,6 +280,8 @@ class SetupWizard(QWizard):
         self.page(CAPTURE).show_capture()
 
     def _save_debug(self, image: Image.Image, name: str) -> None:
+        if not self._save_screenshots:
+            return
         try:
             self._debug_dir.mkdir(parents=True, exist_ok=True)
             image.save(self._debug_dir / f"{name}.png")

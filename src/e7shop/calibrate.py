@@ -241,6 +241,7 @@ def build_config(measured: Measured, base: dict[str, Any] | None = None) -> dict
         **kept("runs_dir"),
         **kept("logs_dir"),
         **kept("debug_dir"),
+        **kept("save_debug"),
     }
     try:
         Config.model_validate(data)

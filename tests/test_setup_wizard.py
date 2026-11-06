@@ -303,3 +303,19 @@ def test_rerun_keeps_previous_settings_and_backs_up(app, tmp_path):
     assert [i.name for i in config.wanted_items] == ["Medals"]
     assert config.timings.after_focus_ms == 900
     assert (tmp_path / "config.json.bak").read_text(encoding="utf-8") == "{}"
+
+
+def test_setup_screenshots_follow_save_debug(app, tmp_path):
+    wizard, _ = make_wizard(tmp_path, Game(), {"save_debug": False})
+    through_items(wizard)
+    through_dialogs(wizard)
+    wizard.accept()
+    assert not (tmp_path / "debug").exists()
+    assert load_config(wizard.saved_path).save_debug is False
+
+
+def test_release_builds_dont_save_setup_screenshots(app, tmp_path, monkeypatch):
+    monkeypatch.setattr("e7shop.gui.setup_wizard.RELEASE", True)
+    wizard, _ = make_wizard(tmp_path, Game())
+    through_screen(wizard)
+    assert not (tmp_path / "debug").exists()

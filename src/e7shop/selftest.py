@@ -66,6 +66,9 @@ def _check() -> list[str]:
     capture.close()
     lines.append(f"screen capture: {image.size}")
     lines.append(_check_ocr())
+    from .build_flags import RELEASE
+
+    lines.append(f"release build: {'yes (no debug captures)' if RELEASE else 'no (debug captures on)'}")
     return lines
 
 

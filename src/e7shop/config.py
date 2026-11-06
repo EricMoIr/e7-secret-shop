@@ -8,6 +8,7 @@ from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PositiveInt, model_validator
 
+from .build_flags import RELEASE
 from .geometry import Rect
 
 
@@ -129,10 +130,16 @@ class Config(_Model):
     runs_dir: str = "runs"
     logs_dir: str = "logs"
     debug_dir: str = "debug"
+    # Debug screenshots of failed reads and of setup, in debug_dir. None: on, except in release builds.
+    save_debug: bool | None = None
 
     @property
     def window_rect(self) -> Rect:
         return Rect(0, 0, self.window_size.width, self.window_size.height)
+
+    @property
+    def debug_captures(self) -> bool:
+        return self.save_debug if self.save_debug is not None else not RELEASE
 
     @property
     def gold_threshold(self) -> int:

@@ -7,10 +7,12 @@
 # 2. Builds the self-test variant (same bundle, console, no admin manifest) and runs --self-test,
 #    so a broken bundle fails here instead of after the UAC prompt.
 # 3. Builds the real exe.
-param([string]$Python = "python")
+# -Release makes a release build: no debug captures unless the config's save_debug turns them on.
+param([string]$Python = "python", [switch]$Release)
 
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
+if ($Release) { $env:E7SHOP_RELEASE = "1"; Write-Host "Release build" } else { Remove-Item Env:E7SHOP_RELEASE -ErrorAction SilentlyContinue }
 
 function Invoke-Checked([string]$what, [scriptblock]$command) {
     & $command

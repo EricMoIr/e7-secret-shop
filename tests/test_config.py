@@ -81,3 +81,11 @@ def test_output_dirs_resolve_against_config_folder(tmp_path):
     config = load_config(path)
     assert config.runs_dir == str(tmp_path / "cfg" / "runs")
     assert config.logs_dir == str(tmp_path / "elsewhere")
+
+
+def test_debug_captures_are_on_from_source_and_off_in_release_builds(monkeypatch):
+    assert example_config().debug_captures  # running from source: no build flags module
+    assert not example_config(save_debug=False).debug_captures
+    monkeypatch.setattr("e7shop.config.RELEASE", True)
+    assert not example_config().debug_captures
+    assert example_config(save_debug=True).debug_captures  # the config can turn them back on

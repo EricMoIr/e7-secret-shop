@@ -69,6 +69,9 @@ class WindowsGame:
         self._mouse.scroll_in(self._to_screen(area), notches, notch_delay_ms, before_scroll=self._ensure_foreground)
 
     def save_debug(self, region: Rect, label: str, note: str) -> None:
+        if not self._config.debug_captures:
+            log.info("Debug capture %s not saved (off in release builds; set save_debug to turn it on): %s", label, note)
+            return
         self._debug_dir.mkdir(parents=True, exist_ok=True)
         stem = self._debug_dir / f"{datetime.now():%Y%m%d-%H%M%S-%f}_{label}"
         try:

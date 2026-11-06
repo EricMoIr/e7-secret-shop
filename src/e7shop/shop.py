@@ -1,16 +1,47 @@
-"""Shop actions: identify items in slots, buy them, scroll, refresh."""
+"""Shop actions: identify items in slots by their name, buy them, scroll, refresh."""
 
 import logging
 import time
 from collections.abc import Callable
 
-from .config import Config, Page, Slot, WantedItem
+from .capture import STILL_MAX_DIFF, mean_difference
+from .config import Config, DialogConfig, Page, Slot, WantedItem
 from .errors import StopKind, StopRun
 from .game import Game
 from .geometry import Rect
 from .ledger import Ledger
 
 log = logging.getLogger(__name__)
+
+# Mean grayscale difference (0-255) below which a buy or refresh button looks the same as before it
+# was clicked: still on show, with no dialog over it. An open dialog dims the whole shop behind it.
+BUTTON_SAME_MAX_DIFF = 12.0
+# Clicks on a buy or refresh button before giving up when its dialog can't be found.
+DIALOG_CLICK_ATTEMPTS = 3
+
+
+def wait_until_still(
+    game: Game,
+    region: Rect,
+    *,
+    interval_s: float,
+    timeout_s: float,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    """Look at the region every `interval_s` until two looks in a row match. False if it was still
+    changing after `timeout_s`. A timeout of 0 doesn't wait at all."""
+    checks = int(timeout_s / interval_s) if interval_s > 0 else 0
+    if checks <= 0:
+        return True
+    previous = game.grab(region)
+    for check in range(1, checks + 1):
+        sleep(interval_s)
+        current = game.grab(region)
+        if mean_difference(previous, current) < STILL_MAX_DIFF:
+            log.debug("Still after %d check(s)", check)
+            return True
+        previous = current
+    return False
 
 
 def wait_for_text(
@@ -57,9 +88,13 @@ class Shop:
         page: Page = self._config.pages[page_index]
         for slot_index, slot in enumerate(page.slots):
             where = f"page {page_index + 1}, slot {slot_index + 1}"
-            text = self._game.read_text(slot.ocr_region)
+            label = f"page{page_index + 1}_slot{slot_index + 1}_name"
+            text = self._read_name(slot.name_region, where, label)
+            if text is None:
+                self._ledger.record_skip(round_, page_index + 1, slot_index + 1)
+                continue
             item = self._config.match_item(text)
-            log.debug("Round %d, %s: OCR %r -> %s", round_, where, text, item.name if item else "-")
+            log.debug("Round %d, %s: %r -> %s", round_, where, text, item.name if item else "-")
             if item is None:
                 continue
             log.info("Round %d, %s: found %s", round_, where, item.name)
@@ -72,11 +107,17 @@ class Shop:
             self._buy(item, slot, page_index, slot_index, round_, where)
 
     def _buy(self, item: WantedItem, slot: Slot, page_index: int, slot_index: int, round_: int, where: str) -> None:
-        self._game.click(slot.target)
-        if not self._dry_run:
-            if not self._wait_for(self._config.buy_dialog.ocr_region, self._config.ocr.buy_text, "buy_dialog"):
-                raise StopRun(StopKind.ERROR, f"The buy dialog didn't appear for {item.name} ({where})")
-            self._game.click(self._config.buy_dialog.button)
+        if self._dry_run:
+            self._game.click(slot.buy_button)
+        else:
+            self._click_through_dialog(
+                slot.buy_button,
+                self._config.buy_dialog,
+                self._config.ocr.buy_text,
+                name="buy dialog",
+                label="buy_dialog",
+                what=f"{item.name} ({where})",
+            )
         self._ledger.record_purchase(round_, item.name, page_index + 1, slot_index + 1, item.price_gold)
         log.info(
             "%s %s for %s gold; %s gold left",
@@ -86,16 +127,111 @@ class Shop:
             f"{self._ledger.gold_remaining:,}",
         )
 
+    def _read_name(self, region: Rect, where: str, label: str) -> str | None:
+        """Read a slot's item name. None when it can't be read even after recovering: the slot is skipped.
+
+        A name that doesn't read usually means something covers the list. If a buy or refresh dialog
+        is still open (its confirm click didn't land), that dialog is finished first, as the previous
+        step would have. Otherwise the list may still be moving, so it's read again once it's still.
+        """
+        text = self._read_text(region)
+        if text:
+            return text
+        if not self._finish_open_dialog():
+            log.info("%s: no item name read; reading again once the list is still", where)
+            self._wait_until_list_still()
+        text = self._read_text(region)
+        if text:
+            return text
+        self._game.save_debug(region, label, "no text read")
+        log.warning("%s: couldn't read the item name; skipping this item", where)
+        return None
+
+    def _read_text(self, region: Rect) -> str:
+        """The region's text with whitespace collapsed, retried; "" if nothing was read."""
+        ocr = self._config.ocr
+        for attempt in range(1, ocr.retries + 1):
+            text = " ".join(self._game.read_text(region).split())
+            if text:
+                return text
+            if attempt < ocr.retries:
+                self._sleep(ocr.retry_delay_ms / 1000)
+        return ""
+
+    def _finish_open_dialog(self) -> bool:
+        """If the buy or refresh dialog is still open, confirm it (finishing the step that opened it)."""
+        config = self._config
+        if config.ocr.buy_text in self._game.read_text(config.buy_dialog.ocr_region):
+            log.warning("The buy dialog is still open: confirming it to finish the previous purchase")
+            self._game.click(config.buy_dialog.button)
+            self._wait_until_list_still()
+            return True
+        if config.ocr.confirm_text in self._game.read_text(config.refresh_dialog.ocr_region):
+            log.warning("The refresh dialog is still open: confirming it to finish the refresh")
+            self._game.click(config.refresh_dialog.button)
+            self._sleep(config.timings.after_refresh_ms / 1000)
+            return True
+        return False
+
+    def _click_through_dialog(
+        self, button: Rect, dialog: DialogConfig, keyword: str, *, name: str, label: str, what: str
+    ) -> None:
+        """Click `button`, wait for its dialog, and click the dialog's confirm button.
+
+        When the dialog's text isn't found, the button is compared with how it looked before the click.
+        Unchanged means the click didn't open anything, so the button is clicked again. Changed means
+        something covers it, and that can only be the dialog (its text just wasn't read), so it's confirmed.
+        """
+        before = self._game.grab(button)
+        for attempt in range(1, DIALOG_CLICK_ATTEMPTS + 1):
+            self._game.click(button)
+            if self._wait_for(dialog.ocr_region, keyword, label):
+                self._game.click(dialog.button)
+                return
+            if mean_difference(before, self._game.grab(button)) < BUTTON_SAME_MAX_DIFF:
+                log.warning(
+                    "The %s didn't appear for %s and its button is still showing; clicking it again (%d of %d)",
+                    name, what, attempt, DIALOG_CLICK_ATTEMPTS,
+                )
+                continue
+            log.warning("The %s wasn't recognised for %s, but its button is covered, so it's open; confirming", name, what)
+            self._game.click(dialog.button)
+            return
+        raise StopRun(StopKind.ERROR, f"The {name} didn't appear for {what} after {DIALOG_CLICK_ATTEMPTS} clicks")
+
+    def _wait_until_list_still(self) -> None:
+        timings = self._config.timings
+        wait_until_still(
+            self._game,
+            self._config.scroll.area,
+            interval_s=timings.settle_check_ms / 1000,
+            timeout_s=timings.after_scroll_ms / 1000,
+            sleep=self._sleep,
+        )
+
     def scroll_down(self) -> None:
-        scroll = self._config.scroll
+        scroll, timings = self._config.scroll, self._config.timings
         self._game.scroll(scroll.area, scroll.notches, scroll.notch_delay_ms)
-        self._sleep(self._config.timings.after_scroll_ms / 1000)
+        # Instead of a fixed wait: read page 2 as soon as the list stops moving.
+        if not wait_until_still(
+            self._game,
+            scroll.area,
+            interval_s=timings.settle_check_ms / 1000,
+            timeout_s=timings.after_scroll_ms / 1000,
+            sleep=self._sleep,
+        ):
+            log.warning("The list was still moving %d ms after scrolling; reading it anyway", timings.after_scroll_ms)
 
     def refresh(self, round_: int) -> None:
-        self._game.click(self._config.refresh_button)
-        if not self._wait_for(self._config.refresh_dialog.ocr_region, self._config.ocr.confirm_text, "refresh_dialog"):
-            raise StopRun(StopKind.ERROR, "The refresh confirmation dialog didn't appear")
-        self._game.click(self._config.refresh_dialog.button)
+        config = self._config
+        self._click_through_dialog(
+            config.refresh_button,
+            config.refresh_dialog,
+            config.ocr.confirm_text,
+            name="refresh confirmation dialog",
+            label="refresh_dialog",
+            what="the refresh",
+        )
         self._ledger.record_refresh(round_, self._config.currency.refresh_cost)
         log.info("Refreshed (round %d); %d skystones left", round_, self._ledger.skystones_remaining)
         # Known limitation: the game may still be waiting on the server here. See PLAN.md §8.

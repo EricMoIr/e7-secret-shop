@@ -31,6 +31,11 @@ class Rect(NamedTuple):
     def contains(self, x: float, y: float) -> bool:
         return self.x0 <= x <= self.x1 and self.y0 <= y <= self.y1
 
+    def scaled(self, sx: float, sy: float) -> "Rect":
+        """This rectangle on a window sx times as wide and sy times as tall. Never less than 1 px a side."""
+        x0, y0 = round(self.x0 * sx), round(self.y0 * sy)
+        return Rect(x0, y0, max(round(self.x1 * sx), x0 + 1), max(round(self.y1 * sy), y0 + 1))
+
     def inside(self, other: "Rect") -> bool:
         return (
             other.x0 <= self.x0

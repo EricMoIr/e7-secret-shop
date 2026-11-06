@@ -12,7 +12,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from ..abort import AbortSignal
 from ..config import Config
-from ..errors import StopKind, StopRun
+from ..errors import StopKind, StopRun, WindowSizeMismatch
 from ..game import Game
 from ..ledger import Ledger
 from ..runner import Balances, check_screen, preflight, run
@@ -55,6 +55,7 @@ class BalancesWorker(QObject):
 
     succeeded = Signal(object)  # Balances
     failed = Signal(str)
+    size_mismatch = Signal(str)  # instead of `failed`, so the window can offer to run setup
     finished = Signal()
 
     def __init__(self, config: Config, abort: AbortSignal, game_factory: GameFactory):
@@ -70,6 +71,9 @@ class BalancesWorker(QObject):
             game = self._factory(self._config, self._abort, False)
             balances: Balances = preflight(game, self._config, sleep=self._abort.sleep)
             self.succeeded.emit(balances)
+        except WindowSizeMismatch as stop:
+            log.warning(stop.reason)
+            self.size_mismatch.emit(stop.reason)
         except StopRun as stop:
             log.warning(stop.reason)
             self.failed.emit(stop.reason)

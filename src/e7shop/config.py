@@ -1,6 +1,7 @@
 """Config file models. See config.example.json."""
 
 import json
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Annotated
@@ -23,6 +24,20 @@ ConfigRect = Annotated[Rect, AfterValidator(_check_rect)]
 Keyword = Annotated[str, AfterValidator(str.lower)]
 
 
+def default_config_path() -> Path:
+    """`config.json` next to the packaged app, or in the working folder when running from source."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "config.json"
+    return Path("config.json")
+
+
+# What setup writes when there's no previous config to take the wanted items from.
+DEFAULT_WANTED_ITEMS: tuple[dict[str, str | int], ...] = (
+    {"name": "Covenant Bookmarks", "keyword": "covenant", "price_gold": 184_000},
+    {"name": "Mystic Medals", "keyword": "mystic", "price_gold": 280_000},
+)
+
+
 class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -36,8 +51,9 @@ class OcrConfig(_Model):
     secret_shop_text: Keyword = "secret shop"
     buy_text: Keyword = "buy"
     confirm_text: Keyword = "confirm"
-    retries: PositiveInt = 3
-    retry_delay_ms: int = Field(300, ge=0)
+    # Dialogs take a moment to animate in: check often, for up to about retries x retry_delay_ms.
+    retries: PositiveInt = 8
+    retry_delay_ms: int = Field(100, ge=0)
     number_consensus_reads: PositiveInt = 3
     # Tesseract page segmentation mode for text: 11 = sparse text, suits scattered UI labels.
     text_psm: int = 11
@@ -53,18 +69,17 @@ class CurrencyConfig(_Model):
 
 
 class WantedItem(_Model):
+    """Recognised by `keyword` in the item's name as read in the shop. `price_gold` is what it costs,
+    for the ledger and the gold checks; it isn't read from the shop."""
+
     name: str
-    keyword: Keyword
+    keyword: Keyword = Field(min_length=1)
     price_gold: PositiveInt
 
 
 class Slot(_Model):
-    target: ConfigRect
-    name_region: ConfigRect | None = None
-
-    @property
-    def ocr_region(self) -> Rect:
-        return self.name_region or self.target
+    name_region: ConfigRect
+    buy_button: ConfigRect
 
 
 class Page(_Model):
@@ -73,8 +88,9 @@ class Page(_Model):
 
 class ScrollConfig(_Model):
     area: ConfigRect
+    # Setup measures how many notches reach the bottom and adds one spare.
     notches: int = -5
-    notch_delay_ms: tuple[int, int] = (30, 80)
+    notch_delay_ms: tuple[int, int] = (10, 30)
 
 
 class DialogConfig(_Model):
@@ -84,12 +100,16 @@ class DialogConfig(_Model):
 
 class TimingConfig(_Model):
     after_focus_ms: int = Field(500, ge=0)
-    after_scroll_ms: int = Field(600, ge=0)
+    # After scrolling, the list is looked at every settle_check_ms until two looks in a row match,
+    # for at most after_scroll_ms. 0 skips the check.
+    after_scroll_ms: int = Field(1500, ge=0)
+    settle_check_ms: int = Field(80, ge=10)
     after_refresh_ms: int = Field(1500, ge=0)
 
 
 class Config(_Model):
-    tesseract_path: str = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    # None: the Tesseract bundled with the app, or a standard install (ocr.find_tesseract).
+    tesseract_path: str | None = None
     process_name: str = "EpicSeven.exe"
     window_size: WindowSize
     abort_hotkey: str = "f12"
@@ -120,6 +140,7 @@ class Config(_Model):
         return max(item.price_gold for item in self.wanted_items)
 
     def match_item(self, ocr_text: str) -> WantedItem | None:
+        """The first wanted item whose keyword appears in the text (case-insensitive), if any."""
         text = ocr_text.lower()
         return next((item for item in self.wanted_items if item.keyword in text), None)
 
@@ -131,9 +152,8 @@ class Config(_Model):
         yield "currency.gold_region", self.currency.gold_region
         for p, page in enumerate(self.pages, start=1):
             for s, slot in enumerate(page.slots, start=1):
-                yield f"page{p}.slot{s}.target", slot.target
-                if slot.name_region:
-                    yield f"page{p}.slot{s}.name_region", slot.name_region
+                yield f"page{p}.slot{s}.name_region", slot.name_region
+                yield f"page{p}.slot{s}.buy_button", slot.buy_button
         yield "scroll.area", self.scroll.area
         yield "buy_dialog.ocr_region", self.buy_dialog.ocr_region
         yield "buy_dialog.button", self.buy_dialog.button

@@ -19,7 +19,8 @@ from .errors import StopRun
 class LedgerEntry:
     timestamp: datetime
     round: int
-    kind: Literal["purchase", "refresh"]
+    # "skip": a slot whose item name couldn't be read, so it was passed over. Spends nothing.
+    kind: Literal["purchase", "refresh", "skip"]
     item: str | None
     page: int | None
     slot: int | None
@@ -77,6 +78,9 @@ class Ledger:
     def record_refresh(self, round_: int, skystones: int) -> LedgerEntry:
         return self._add(LedgerEntry(self._clock(), round_, "refresh", None, None, None, 0, skystones))
 
+    def record_skip(self, round_: int, page: int, slot: int) -> LedgerEntry:
+        return self._add(LedgerEntry(self._clock(), round_, "skip", None, page, slot, 0, 0))
+
     @property
     def gold_spent(self) -> int:
         return sum(e.gold for e in self.entries)
@@ -97,6 +101,10 @@ class Ledger:
     def refreshes(self) -> int:
         return sum(1 for e in self.entries if e.kind == "refresh")
 
+    @property
+    def skipped(self) -> int:
+        return sum(1 for e in self.entries if e.kind == "skip")
+
     def purchases_by_item(self) -> Counter[str]:
         return Counter(e.item for e in self.entries if e.kind == "purchase")
 
@@ -112,6 +120,8 @@ class Ledger:
             f"Gold:               {self.gold_spent:,} spent, {self.gold_remaining:,} left",
             f"Skystones:          {self.skystones_spent:,} spent, {self.skystones_remaining:,} left",
         ]
+        if self.skipped:
+            lines.append(f"Skipped items:      {self.skipped} (name couldn't be read; see the log)")
         return lines
 
     def close(self, stop: StopRun | None = None) -> None:
@@ -125,6 +135,7 @@ class Ledger:
                 "reason": stop.reason if stop else None,
                 "refreshes": self.refreshes,
                 "purchases": dict(self.purchases_by_item()),
+                "skipped": self.skipped,
                 "gold_spent": self.gold_spent,
                 "skystones_spent": self.skystones_spent,
             }

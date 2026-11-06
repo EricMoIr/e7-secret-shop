@@ -38,9 +38,18 @@ def test_preflight_requires_secret_shop():
     assert game.debug_saves == ["secret_shop"]
 
 
-def test_preflight_requires_matching_window_size():
-    game = FakeGame(CONFIG, [NOTHING], client_size=(1280, 720))
-    with pytest.raises(StopRun, match="1280x720"):
+def test_preflight_accepts_any_size_of_the_same_shape():
+    # The example layout is 1920x1080; the game scales its contents with its window.
+    for size in ((1280, 720), (960, 540), (2560, 1440), (1281, 720)):
+        game = FakeGame(CONFIG, [NOTHING], client_size=size)
+        preflight(game, CONFIG, sleep=no_sleep)
+
+
+def test_preflight_requires_the_same_shape():
+    from e7shop.errors import WindowSizeMismatch
+
+    game = FakeGame(CONFIG, [NOTHING], client_size=(1280, 1024))
+    with pytest.raises(WindowSizeMismatch, match="1280x1024, a different shape"):
         preflight(game, CONFIG, sleep=no_sleep)
 
 
@@ -143,21 +152,97 @@ def test_stops_on_wanted_item_it_cannot_afford():
     assert [b[3] for b in game.bought] == ["covenant"]
 
 
-def test_missing_buy_dialog_is_an_error_and_records_nothing():
+# Recovering when a dialog isn't recognised
+
+
+def test_unrecognised_buy_dialog_over_the_button_is_confirmed():
+    """The dialog opened but its text didn't read: the dimmed button shows it's there, so confirm it."""
     game = FakeGame(CONFIG, [shop(["Mystic"], [])], broken_buy_dialog=True)
-    stop, ledger = run_game(game)
-    assert stop.kind is StopKind.ERROR
-    assert "buy dialog" in stop.reason
-    assert ledger.entries == [] and game.bought == []
+    stop, ledger = run_game(game, refreshes=0)
+    assert stop.kind is StopKind.COMPLETED
+    assert [b[3] for b in game.bought] == ["mystic"] and ledger.purchases_by_item() == {"Mystic Medals": 1}
     assert game.debug_saves == ["buy_dialog"]
 
 
-def test_missing_refresh_dialog_is_an_error():
-    game = FakeGame(CONFIG, [NOTHING, NOTHING], broken_refresh_dialog=True)
+def test_buy_click_that_didnt_register_is_clicked_again():
+    game = FakeGame(CONFIG, [shop(["Mystic"], [])])
+    game.drop_clicks["buy"] = 1
+    stop, ledger = run_game(game, refreshes=0)
+    assert stop.kind is StopKind.COMPLETED and len(game.bought) == 1
+    button = CONFIG.pages[0].slots[0].buy_button
+    assert game.clicks[:2] == [button, button]
+
+
+def test_buy_button_that_never_opens_the_dialog_stops_after_three_clicks():
+    game = FakeGame(CONFIG, [shop(["Mystic"], [])])
+    game.drop_clicks["buy"] = 99
     stop, ledger = run_game(game)
-    assert stop.kind is StopKind.ERROR
-    assert ledger.refreshes == 0
+    assert stop.kind is StopKind.ERROR and "buy dialog" in stop.reason and "3 clicks" in stop.reason
+    assert ledger.entries == [] and game.bought == []
+    assert game.clicks.count(CONFIG.pages[0].slots[0].buy_button) == 3
+
+
+def test_unrecognised_refresh_dialog_is_confirmed():
+    game = FakeGame(CONFIG, [NOTHING, NOTHING], broken_refresh_dialog=True)
+    stop, ledger = run_game(game, refreshes=1)
+    assert stop.kind is StopKind.COMPLETED and ledger.refreshes == 1 and game.round == 1
     assert game.debug_saves == ["refresh_dialog"]
+
+
+def test_refresh_click_that_didnt_register_is_clicked_again():
+    game = FakeGame(CONFIG, [NOTHING, NOTHING])
+    game.drop_clicks["refresh"] = 2
+    stop, ledger = run_game(game, refreshes=1)
+    assert stop.kind is StopKind.COMPLETED and ledger.refreshes == 1 and game.round == 1
+    assert game.clicks.count(CONFIG.refresh_button) == 3
+
+
+def test_refresh_button_that_never_opens_the_dialog_stops_after_three_clicks():
+    game = FakeGame(CONFIG, [NOTHING, NOTHING])
+    game.drop_clicks["refresh"] = 99
+    stop, ledger = run_game(game)
+    assert stop.kind is StopKind.ERROR and "refresh confirmation dialog" in stop.reason
+    assert ledger.refreshes == 0
+
+
+# Recovering when an item name doesn't read
+
+
+def test_buy_dialog_left_open_is_confirmed_before_reading_on():
+    """The buy confirm click didn't land: the dialog covers the next name, so it's confirmed first."""
+    game = FakeGame(CONFIG, [shop(["Mystic", "-", "Covenant"], [])])
+    game.drop_clicks["buy_confirm"] = 1
+    stop, ledger = run_game(game, refreshes=0)
+    assert stop.kind is StopKind.COMPLETED
+    assert [b[3] for b in game.bought] == ["mystic", "covenant"]
+    # Each purchase was recorded once, though the first needed a second confirm click.
+    assert ledger.purchases_by_item() == {"Mystic Medals": 1, "Covenant Bookmarks": 1}
+    assert ledger.skipped == 0
+
+
+def test_refresh_dialog_left_open_is_confirmed_before_reading_on():
+    game = FakeGame(CONFIG, [NOTHING, shop(["Covenant"], [])])
+    game.drop_clicks["refresh_confirm"] = 1
+    stop, ledger = run_game(game, refreshes=1)
+    assert stop.kind is StopKind.COMPLETED
+    assert ledger.refreshes == 1 and game.round == 1
+    assert [b[3] for b in game.bought] == ["covenant"]
+
+
+def test_name_that_reads_on_a_second_look_isnt_skipped():
+    game = FakeGame(CONFIG, [shop(["Mystic"], [])])
+    game.blank_name_reads = CONFIG.ocr.retries  # the whole first look comes back empty
+    stop, ledger = run_game(game, refreshes=0)
+    assert stop.kind is StopKind.COMPLETED and len(game.bought) == 1 and ledger.skipped == 0
+
+
+def test_name_that_never_reads_is_skipped():
+    game = FakeGame(CONFIG, [shop(["-", "  ", "Mystic"], [])])
+    stop, ledger = run_game(game, refreshes=0)
+    assert stop.kind is StopKind.COMPLETED
+    assert [b[3] for b in game.bought] == ["mystic"]
+    assert ledger.skipped == 1 and game.debug_saves == ["page1_slot2_name"]
+    assert any("Skipped items:      1" in line for line in ledger.summary_lines())
 
 
 def test_dry_run_clicks_nothing_scans_once_and_records_would_buys():
@@ -193,3 +278,32 @@ def test_run_closes_the_ledger_file(tmp_path):
     ledger = Ledger(2_000_000, 30, path=path)
     run(FakeGame(CONFIG, [NOTHING]), CONFIG, ledger, 0, sleep=no_sleep)
     assert path.read_text().splitlines()[-1].startswith('{"type": "stop"')
+
+
+def test_page_two_is_read_as_soon_as_the_list_stops_moving():
+    game = FakeGame(CONFIG, [shop([], ["Mystic"])])
+    game.frames_moving_after_scroll = 3
+    sleeps = []
+    ledger = Ledger(2_000_000, 30)
+    stop = run(game, CONFIG, ledger, 0, sleep=sleeps.append)
+    assert stop.kind is StopKind.COMPLETED and [b[3] for b in game.bought] == ["mystic"]
+    check = CONFIG.timings.settle_check_ms / 1000
+    # Three looks still moving, then two that match: 4 short waits instead of a fixed one.
+    assert sleeps.count(check) == 4
+
+
+def test_list_still_moving_after_the_timeout_is_read_anyway(caplog):
+    game = FakeGame(CONFIG, [shop([], ["Mystic"])])
+    game.frames_moving_after_scroll = 1000
+    stop, _ = run_game(game, refreshes=0)
+    assert stop.kind is StopKind.COMPLETED and len(game.bought) == 1
+    assert "still moving" in caplog.text
+
+
+def test_wait_until_still_with_no_timeout_doesnt_look():
+    from e7shop.geometry import Rect
+    from e7shop.shop import wait_until_still
+
+    game = FakeGame(CONFIG, [NOTHING])
+    assert wait_until_still(game, Rect(0, 0, 10, 10), interval_s=0.08, timeout_s=0, sleep=no_sleep)
+    assert game.grabs == 0

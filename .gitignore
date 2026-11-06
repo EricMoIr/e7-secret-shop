@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+.venv-build/
 .pytest_cache/
 build/
 dist/
@@ -13,3 +14,7 @@ debug/
 
 # local configs (keep config.example.json tracked)
 config.json
+config.json.bak
+
+# bundled third-party files (scripts/fetch_tesseract.py)
+vendor/

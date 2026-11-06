@@ -9,7 +9,7 @@ Real screenshots from the game, used to tune OCR (phase 1, steps 3–4).
 ```json
 [
   { "image": "shop_top.png", "kind": "text", "expect": "secret shop" },
-  { "image": "shop_top.png", "kind": "text", "expect": "covenant", "region": [1100, 200, 1700, 290] },
+  { "image": "shop_top.png", "kind": "number", "expect": 184000, "region": [1450, 230, 1580, 260] },
   { "image": "buy_dialog.png", "kind": "text", "expect": "buy", "region": [600, 300, 1300, 750] },
   { "image": "refresh_dialog.png", "kind": "text", "expect": "confirm", "region": [600, 300, 1300, 750] },
   { "image": "currency_gold.png", "kind": "number", "expect": 12345678 }

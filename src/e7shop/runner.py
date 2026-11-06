@@ -6,13 +6,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from .config import Config
-from .errors import StopKind, StopRun
+from .errors import StopKind, StopRun, WindowSizeMismatch
 from .game import Game
 from .geometry import Rect
 from .ledger import Ledger
 from .shop import Shop, wait_for_text
 
 log = logging.getLogger(__name__)
+
+# How far the window's width/height ratio may be from the layout's before the run refuses to start.
+ASPECT_TOLERANCE = 0.02
+# Smallest scale the resize test read every region at.
+MIN_TESTED_SCALE = 0.6
 
 
 @dataclass(frozen=True)
@@ -32,13 +37,20 @@ def check_screen(game: Game, config: Config, *, sleep: Callable[[float], None] =
     game.focus()
     sleep(config.timings.after_focus_ms / 1000)
 
-    size = game.client_size()
-    expected = (config.window_size.width, config.window_size.height)
-    if size != expected:
-        raise StopRun(
-            StopKind.ERROR,
-            f"The game window is {size[0]}x{size[1]} but the config was made for {expected[0]}x{expected[1]}",
+    # Regions are scaled to the window's size (WindowsGame), so any size works as long as the shape
+    # matches. The game keeps its window 16:9, so a different shape means something unusual.
+    width, height = game.client_size()
+    reference = config.window_size
+    if abs((width / height) / (reference.width / reference.height) - 1) > ASPECT_TOLERANCE:
+        raise WindowSizeMismatch(
+            f"The game window is {width}x{height}, a different shape from the {reference.width}x{reference.height} "
+            "the layout was set up for. Resize the game to a normal 16:9 window, or run setup again."
         )
+    scale = width / reference.width
+    if abs(scale - 1) > 0.005:
+        log.info("Game window is %dx%d: regions scaled by %.2f", width, height, scale)
+    if scale < MIN_TESTED_SCALE:
+        log.warning("The game window is small (%.2fx the layout); text may not read reliably", scale)
 
     if not wait_for_text(
         game,

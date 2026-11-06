@@ -64,11 +64,45 @@ def make_factory(rounds, **game_kwargs):
     return factory
 
 
-def make_window(config_path, factory, tmp_path):
+class FakeSetup:
+    """Stands in for the setup wizard: records each call and "saves" `result` (a config to copy, or None)."""
+
+    def __init__(self, result=None):
+        self.calls = []
+        self.result = result
+
+    def __call__(self, path, base, parent):
+        self.calls.append((path, base))
+        if self.result is None:
+            return None
+        path.write_text(self.result.read_text(encoding="utf-8"), encoding="utf-8")
+        return path
+
+
+def make_window(config_path, factory, tmp_path, *, setup=None, answer=False):
     settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
-    window = MainWindow(str(config_path), game_factory=factory, register_hotkey=lambda key: (lambda: None), settings=settings)
+    window = MainWindow(
+        str(config_path),
+        game_factory=factory,
+        register_hotkey=lambda key: (lambda: None),
+        settings=settings,
+        setup_dialog=setup or FakeSetup(),
+    )
     messages = []
     window.show_message = lambda icon, title, text: messages.append((icon, title, text))
+    window.questions = []
+
+    def ask(title, text, button):
+        window.questions.append((title, text, button))
+        return answer
+
+    window.ask = ask
+    window.refocused = 0
+
+    def bring_back(_widget):
+        window.refocused += 1
+
+    window.bring_back = bring_back
     return window, messages
 
 
@@ -152,8 +186,80 @@ def test_window_loads_config_and_gates_start_on_confirmation(app, config_path, t
 
 def test_window_reports_missing_config(app, tmp_path):
     window, messages = make_window(tmp_path / "nope.json", make_factory([NOTHING]), tmp_path)
-    assert "Couldn't open" in window.config_status.text()
+    assert "No config at" in window.config_status.text() and "Run setup" in window.config_status.text()
+    assert window.config_problem == "missing"
     assert not window.read_button.isEnabled()
+    assert messages == []
+
+
+def test_missing_config_uses_the_default_layout(app, tmp_path):
+    target = tmp_path / "new" / "config.json"
+    target.parent.mkdir()
+    setup = FakeSetup()
+    window, _ = make_window(target, make_factory([NOTHING]), tmp_path, setup=setup)
+    window.offer_setup_if_needed()
+    assert setup.calls == []  # no setup needed
+    assert target.exists() and window.config_problem is None
+    assert "default layout" in window.config_status.text()
+    assert window.read_button.isEnabled()
+
+
+def test_run_setup_can_replace_the_defaults(app, config_path, tmp_path):
+    target = tmp_path / "new" / "config.json"
+    target.parent.mkdir()
+    setup = FakeSetup(result=config_path)
+    window, _ = make_window(target, make_factory([NOTHING]), tmp_path, setup=setup)
+    window.offer_setup_if_needed()
+    window.run_setup()
+    assert len(setup.calls) == 1 and setup.calls[0][1]["window_size"] == {"width": 1243, "height": 699}
+    assert "Loaded" in window.config_status.text()
+
+
+def test_invalid_config_at_boot_offers_setup_with_its_settings(app, config_path, tmp_path):
+    config_path.write_text('{"timings": {"after_focus_ms": 900}}', encoding="utf-8")
+    setup = FakeSetup()
+    window, _ = make_window(config_path, make_factory([NOTHING]), tmp_path, setup=setup, answer=True)
+    window.offer_setup_if_needed()
+    assert window.questions[0][0] == "Invalid config" and window.questions[0][2] == "Run setup"
+    assert setup.calls == [(config_path, {"timings": {"after_focus_ms": 900}})]
+
+
+def test_invalid_config_at_boot_can_be_declined(app, config_path, tmp_path):
+    config_path.write_text("{}", encoding="utf-8")
+    setup = FakeSetup()
+    window, _ = make_window(config_path, make_factory([NOTHING]), tmp_path, setup=setup, answer=False)
+    window.offer_setup_if_needed()
+    assert window.questions and setup.calls == []
+
+
+def test_valid_config_at_boot_runs_nothing(app, config_path, tmp_path):
+    setup = FakeSetup()
+    window, _ = make_window(config_path, make_factory([NOTHING]), tmp_path, setup=setup)
+    window.offer_setup_if_needed()
+    assert setup.calls == [] and window.questions == []
+
+
+def test_wrong_window_size_offers_setup(app, config_path, tmp_path):
+    setup = FakeSetup()
+    window, messages = make_window(
+        config_path, make_factory([NOTHING], client_size=(1600, 1200)), tmp_path, setup=setup, answer=True
+    )
+    window.read_balances()
+    wait_until_idle(app, window)
+    title, text, button = window.questions[0]
+    assert title == "Game window shape changed" and "1600x1200" in text and "1920x1080" in text
+    assert button == "Run setup" and len(setup.calls) == 1
+    assert messages == []
+
+
+def test_wrong_window_size_at_run_start_offers_setup(app, config_path, tmp_path):
+    window, messages = make_window(config_path, make_factory([NOTHING], client_size=(1600, 1200)), tmp_path)
+    window.gold_spin.setValue(1_000_000)
+    window.skystones_spin.setValue(30)
+    window.confirm_check.setChecked(True)
+    window.start_run(dry_run=False)
+    wait_until_idle(app, window)
+    assert window.questions[0][0] == "Game window shape changed"
     assert messages == []
 
 
@@ -173,6 +279,17 @@ def test_read_balances_fills_values_unconfirmed(app, config_path, tmp_path):
     wait_until_idle(app, window)
     assert window.gold_spin.value() == 1_234_567 and window.skystones_spin.value() == 42
     assert not window.confirm_check.isChecked()
+    assert window.refocused == 1
+
+
+def test_read_balances_failure_also_refocuses_before_the_message(app, config_path, tmp_path):
+    window, messages = make_window(config_path, make_factory([NOTHING], secret_shop=False), tmp_path)
+    order = []
+    window.bring_back = lambda _w: order.append("refocus")
+    window.show_message = lambda icon, title, text: order.append(title)
+    window.read_balances()
+    wait_until_idle(app, window)
+    assert order == ["refocus", "Couldn't read balances"]
 
 
 def test_full_run_updates_progress_and_carries_balances_over(app, config_path, tmp_path):
@@ -217,6 +334,7 @@ def test_dry_run_keeps_balances(app, config_path, tmp_path):
 
 def test_stop_button_aborts_run(app, config_path, tmp_path):
     class SlowGame(FakeGame):
+        # Item names are read as text: slowing that down keeps the run going until Stop lands.
         def read_text(self, region):
             time.sleep(0.02)
             return super().read_text(region)
@@ -235,3 +353,45 @@ def test_stop_button_aborts_run(app, config_path, tmp_path):
     wait_until_idle(app, window)
     icon, title, _ = messages[-1]
     assert title == "Stopped" and icon == QMessageBox.Icon.Information
+
+
+def test_enlarge_font_adds_two_pixels(app):
+    from PySide6.QtGui import QFont
+
+    from e7shop.gui.app import enlarge_font
+
+    original = app.font()
+    try:
+        app.setFont(QFont("Arial", 9))
+        enlarge_font(app)
+        assert app.font().pointSizeF() == 10.5  # 9 pt + 2 px (1.5 pt)
+        pixel_font = QFont("Arial")
+        pixel_font.setPixelSize(12)
+        app.setFont(pixel_font)
+        enlarge_font(app)
+        assert app.font().pixelSize() == 14
+    finally:
+        app.setFont(original)
+
+
+def test_balances_results_are_handled_on_the_gui_thread(app, config_path, tmp_path):
+    """The window must only be touched from the GUI thread; a lambda slot ran on the worker's
+    thread and froze the app on Windows."""
+    import threading
+
+    for factory in (make_factory([NOTHING]), make_factory([NOTHING], secret_shop=False)):
+        window, _ = make_window(config_path, factory, tmp_path)
+        threads = []
+        window.bring_back = lambda _w: threads.append(threading.current_thread())
+        window.show_message = lambda *_args: threads.append(threading.current_thread())
+        window.read_balances()
+        wait_until_idle(app, window)
+        assert threads and all(t is threading.main_thread() for t in threads)
+
+
+def test_a_resized_window_of_the_same_shape_runs(app, config_path, tmp_path):
+    window, messages = make_window(config_path, make_factory([NOTHING], client_size=(960, 540)), tmp_path)
+    window.read_balances()
+    wait_until_idle(app, window)
+    assert window.questions == [] and messages == []
+    assert window.gold_spin.value() == 2_000_000

@@ -1,10 +1,36 @@
 """Tesseract wrapper. Text comes back lower-cased; numbers keep only their digits."""
 
 import re
+import sys
+from pathlib import Path
 
 from PIL import Image, ImageOps
 
 _NON_DIGITS = re.compile(r"\D")
+
+# Where the UB Mannheim installer puts Tesseract by default.
+STANDARD_INSTALL = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+
+
+def bundled_tesseract() -> Path | None:
+    """The Tesseract shipped with the app: inside the packaged exe, or vendor/tesseract/ in a source
+    checkout (made by scripts/fetch_tesseract.py)."""
+    roots = []
+    if getattr(sys, "frozen", False):
+        roots.append(Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)))
+    roots.append(Path(__file__).resolve().parents[2] / "vendor")
+    for root in roots:
+        exe = root / "tesseract" / "tesseract.exe"
+        if exe.is_file():
+            return exe
+    return None
+
+
+def find_tesseract(configured: str | None = None) -> Path | None:
+    """The Tesseract to use: the configured path if it exists, else the bundled one, else a standard install."""
+    candidates = [Path(configured)] if configured else []
+    candidates += [p for p in (bundled_tesseract(), STANDARD_INSTALL) if p]
+    return next((p for p in candidates if p.is_file()), None)
 
 
 def parse_number(text: str) -> int | None:

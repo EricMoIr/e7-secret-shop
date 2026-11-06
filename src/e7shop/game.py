@@ -3,6 +3,8 @@ tests use a simulated shop."""
 
 from typing import Protocol
 
+from PIL import Image
+
 from .geometry import Rect
 
 
@@ -12,6 +14,10 @@ class Game(Protocol):
     def focus(self) -> None: ...
 
     def client_size(self) -> tuple[int, int]: ...
+
+    def grab(self, region: Rect) -> Image.Image:
+        """A screenshot of the region."""
+        ...
 
     def read_text(self, region: Rect) -> str:
         """OCR text in the region, lower-cased."""

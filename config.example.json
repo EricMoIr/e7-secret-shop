@@ -1,5 +1,4 @@
 {
-  "tesseract_path": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
   "process_name": "EpicSeven.exe",
   "window_size": { "width": 1920, "height": 1080 },
   "abort_hotkey": "f12",
@@ -9,8 +8,8 @@
     "secret_shop_text": "secret shop",
     "buy_text": "buy",
     "confirm_text": "confirm",
-    "retries": 3,
-    "retry_delay_ms": 300,
+    "retries": 8,
+    "retry_delay_ms": 100,
     "number_consensus_reads": 3
   },
 
@@ -28,27 +27,27 @@
   "pages": [
     {
       "slots": [
-        { "target": [1100, 200, 1700, 290] },
-        { "target": [1100, 310, 1700, 400] },
-        { "target": [1100, 420, 1700, 510] },
-        { "target": [1100, 530, 1700, 620] }
+        { "name_region": [1200, 230, 1420, 270], "buy_button": [1440, 220, 1690, 280] },
+        { "name_region": [1200, 340, 1420, 380], "buy_button": [1440, 330, 1690, 390] },
+        { "name_region": [1200, 450, 1420, 490], "buy_button": [1440, 440, 1690, 500] },
+        { "name_region": [1200, 560, 1420, 600], "buy_button": [1440, 550, 1690, 610] }
       ]
     },
     {
       "slots": [
-        { "target": [1100, 480, 1700, 570] },
-        { "target": [1100, 590, 1700, 680] }
+        { "name_region": [1200, 510, 1420, 550], "buy_button": [1440, 500, 1690, 560] },
+        { "name_region": [1200, 620, 1420, 660], "buy_button": [1440, 610, 1690, 670] }
       ]
     }
   ],
 
-  "scroll": { "area": [1100, 300, 1700, 600], "notches": -5, "notch_delay_ms": [30, 80] },
+  "scroll": { "area": [1200, 220, 1690, 610], "notches": -5, "notch_delay_ms": [10, 30] },
 
   "buy_dialog":     { "ocr_region": [600, 300, 1300, 750], "button": [900, 650, 1100, 710] },
   "refresh_button": [100, 950, 350, 1010],
   "refresh_dialog": { "ocr_region": [600, 300, 1300, 750], "button": [900, 650, 1100, 710] },
 
-  "timings": { "after_focus_ms": 500, "after_scroll_ms": 600, "after_refresh_ms": 1500 },
+  "timings": { "after_focus_ms": 500, "after_scroll_ms": 1500, "settle_check_ms": 80, "after_refresh_ms": 1500 },
 
   "runs_dir": "runs",
   "logs_dir": "logs",

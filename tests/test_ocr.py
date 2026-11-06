@@ -55,3 +55,34 @@ def test_samples(case):
         assert ocr.number(image) == case["expect"]
     else:
         assert case["expect"].lower() in ocr.text(image)
+
+
+def test_find_tesseract_prefers_configured_then_bundled_then_standard(tmp_path, monkeypatch):
+    import e7shop.ocr as ocr
+
+    configured, bundled, standard = (tmp_path / name / "tesseract.exe" for name in ("configured", "bundled", "standard"))
+    monkeypatch.setattr(ocr, "bundled_tesseract", lambda: bundled)
+    monkeypatch.setattr(ocr, "STANDARD_INSTALL", standard)
+    assert ocr.find_tesseract(str(configured)) is None
+    for exe in (standard, bundled, configured):
+        exe.parent.mkdir()
+        exe.write_text("")
+    assert ocr.find_tesseract(str(configured)) == configured
+    assert ocr.find_tesseract(None) == bundled
+    # A configured path that no longer exists falls back to the bundled one.
+    assert ocr.find_tesseract(str(tmp_path / "gone.exe")) == bundled
+    bundled.unlink()
+    assert ocr.find_tesseract(None) == standard
+
+
+def test_bundled_tesseract_is_found_in_the_packaged_app(tmp_path, monkeypatch):
+    import sys
+
+    from e7shop.ocr import bundled_tesseract
+
+    exe = tmp_path / "tesseract" / "tesseract.exe"
+    exe.parent.mkdir()
+    exe.write_text("")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert bundled_tesseract() == exe

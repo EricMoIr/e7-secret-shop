@@ -23,3 +23,10 @@ class StopRun(Exception):
 
     def __repr__(self) -> str:
         return f"StopRun({self.kind.value!r}, {self.reason!r})"
+
+
+class WindowSizeMismatch(StopRun):
+    """The game window isn't the size setup was done at. The GUI offers to run setup again."""
+
+    def __init__(self, reason: str):
+        super().__init__(StopKind.ERROR, reason)
